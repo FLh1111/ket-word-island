@@ -1,2 +1,25 @@
-# ket-word-island
-KET vocabulary learning island — free access test and public learning resources
+# KET 单词冒险岛
+
+[学生入口](https://flh1111.github.io/ket-word-island/?role=student) · [老师后台](https://flh1111.github.io/ket-word-island/?role=teacher) · [网络测试](https://flh1111.github.io/ket-word-island/network.html)
+
+学生输入老师发放的学习码。老师使用单独开通的邮箱账号登录，无需 ChatGPT。
+
+## 老师发布每日单词
+
+1. 登录老师后台，选择学习日期和主题。
+2. 载入一组内置素材，或导入 JSON 词表，再逐项修改。每日 10–20 个词，每词需有两条例句。
+3. 点击“预览并检查”，审核词义和例句后点击“发布词表”。
+4. 学生首次打开当天任务时会加载该词表，已经开始的任务保留原词表。
+5. 创建学生昵称档案，生成学习码，单独发给对应学生。重置学习码会使旧码和旧登录失效，进度保留。
+
+每个单词练习词义、拼写和语境三轮；答错需改对，支持回车、提示音、星星和错词复习。进度同时保存在当前设备和私有数据库中。学习码登录在当前标签页保留，关闭后需重新输入。
+
+## 部署与维护
+
+GitHub Pages 提供静态页面；Supabase 免费项目提供老师认证、词表、学习档案和记录。`config.js` 只含可公开的项目地址和 publishable key，绝不能填入数据库密码或 secret/service-role key。
+
+数据库结构位于 `backend/schema.sql`。所有表在私有 schema 内并启用 RLS，公开接口逐次检查老师身份或学生会话。老师权限由项目所有者在后台单独指定，公开注册不产生老师权限。
+
+Supabase 免费项目在一周不活跃后可能暂停，需要在 Supabase 控制台恢复。免费服务没有地区访问保证，需在学生实际网络中验证。旧网站数据不会自动出现在新网站，迁移真实档案前应先备份和核对。
+
+本仓库仅存网页和公开教学素材，不存学生档案、学习码或个人学习记录。
