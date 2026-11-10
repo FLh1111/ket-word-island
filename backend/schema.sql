@@ -114,7 +114,7 @@ begin
     if p_path='/api/admin/lesson' and p_method='PUT' then
       if coalesce(p_body->>'date','') !~ '^\d{4}-\d{2}-\d{2}$' or jsonb_typeof(p_body->'words') is distinct from 'array' then return jsonb_build_object('error','请选择日期并提供词表','status',400); end if;
       begin v_date:=(p_body->>'date')::date; exception when others then return jsonb_build_object('error','日期无效','status',400); end;
-      if jsonb_array_length(p_body->'words') not between 10 and 20 or octet_length(p_body::text)>100000 then return jsonb_build_object('error','每天需要 10–20 个词，词表内容不能过长','status',400); end if;
+      if jsonb_array_length(p_body->'words') not between 10 and 120 or octet_length(p_body::text)>250000 then return jsonb_build_object('error','每天需要 10–120 个词目，词表内容不能过长','status',400); end if;
       if length(trim(coalesce(p_body->>'topic',''))) not between 1 and 60 then return jsonb_build_object('error','请填写 1–60 字的词表主题','status',400); end if;
       for v_word in select value from jsonb_array_elements(p_body->'words') loop
         if jsonb_typeof(v_word) is distinct from 'object' or exists(select 1 from unnest(array['w','m','pos','topic','chunk','e','e2','hint']) k where jsonb_typeof(v_word->k) is distinct from 'string' or length(trim(v_word->>k))=0 or length(v_word->>k)>1000) then return jsonb_build_object('error','词条需要完整填写','status',400); end if;
