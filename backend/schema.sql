@@ -30,10 +30,11 @@ declare
   v_profile island_private.profiles%rowtype;
   v_token text; v_code text; v_hash text; v_bucket text; v_attempts integer;
   v_teacher boolean; v_lessons jsonb; v_result jsonb; v_word jsonb; v_seen text[] := '{}';
-  v_date date; v_id uuid; v_today date := (now() at time zone 'Asia/Hong_Kong')::date;
+  v_date date; v_id uuid; v_updated timestamptz; v_expected timestamptz;
+  v_today date := (now() at time zone 'Asia/Hong_Kong')::date;
   v_headers jsonb := coalesce(nullif(current_setting('request.headers',true),''),'{}')::jsonb;
 begin
-  if length(p_path)>100 or p_method not in ('GET','POST','PUT') or octet_length(p_body::text)>1500000 then
+  if length(p_path)>100 or p_method not in ('GET','POST','PUT','DELETE') or octet_length(p_body::text)>1500000 then
     return jsonb_build_object('error','请求内容无效','status',400);
   end if;
   if p_path='/api/student/login' and p_method='POST' then
@@ -85,6 +86,16 @@ begin
       insert into island_private.profiles(name) values(trim(p_body->>'name')) returning * into v_profile;
       return jsonb_build_object('id',v_profile.id,'name',v_profile.name);
     end if;
+    if p_path='/api/profiles' and p_method='DELETE' then
+      select * into v_profile from island_private.profiles where id::text=p_body->>'id' for update;
+      if v_profile.id is null then return jsonb_build_object('error','学生档案不存在或已删除','status',404); end if;
+      if p_body->>'name' is distinct from v_profile.name then return jsonb_build_object('error','请输入完整的学生昵称以确认删除','status',400); end if;
+      delete from island_private.sessions where profile_id=v_profile.id;
+      delete from island_private.codes where profile_id=v_profile.id;
+      delete from island_private.progress where profile_id=v_profile.id;
+      delete from island_private.profiles where id=v_profile.id;
+      return jsonb_build_object('ok',true);
+    end if;
     if p_path='/api/admin/code' and p_method='POST' then
       select * into v_profile from island_private.profiles where id::text=p_body->>'profile';
       if v_profile.id is null then return jsonb_build_object('error','学生档案不存在','status',404); end if;
@@ -104,12 +115,19 @@ begin
       if coalesce(p_body->>'date','') !~ '^\d{4}-\d{2}-\d{2}$' or jsonb_typeof(p_body->'words') is distinct from 'array' then return jsonb_build_object('error','请选择日期并提供词表','status',400); end if;
       begin v_date:=(p_body->>'date')::date; exception when others then return jsonb_build_object('error','日期无效','status',400); end;
       if jsonb_array_length(p_body->'words') not between 10 and 20 or octet_length(p_body::text)>100000 then return jsonb_build_object('error','每天需要 10–20 个词，词表内容不能过长','status',400); end if;
+      if length(trim(coalesce(p_body->>'topic',''))) not between 1 and 60 then return jsonb_build_object('error','请填写 1–60 字的词表主题','status',400); end if;
       for v_word in select value from jsonb_array_elements(p_body->'words') loop
         if jsonb_typeof(v_word) is distinct from 'object' or exists(select 1 from unnest(array['w','m','pos','topic','chunk','e','e2','hint']) k where jsonb_typeof(v_word->k) is distinct from 'string' or length(trim(v_word->>k))=0 or length(v_word->>k)>1000) then return jsonb_build_object('error','词条需要完整填写','status',400); end if;
         if lower(v_word->>'w')=any(v_seen) or position(lower(v_word->>'w') in lower(v_word->>'e'))=0 or position(lower(v_word->>'w') in lower(v_word->>'e2'))=0 then return jsonb_build_object('error','单词不能重复，两条例句都需包含所学单词','status',400); end if;
         v_seen:=array_append(v_seen,lower(v_word->>'w'));
       end loop;
-      insert into island_private.lessons values(v_date,left(coalesce(p_body->>'topic','老师词表'),60),p_body->'words',now())
+      perform pg_advisory_xact_lock(hashtext('island-lesson:'||v_date::text));
+      select updated_at into v_updated from island_private.lessons where date=v_date;
+      if p_body ? 'expected_updated_at' then
+        begin v_expected:=(p_body->>'expected_updated_at')::timestamptz; exception when others then return jsonb_build_object('error','词表版本无效，请重新载入','status',400); end;
+        if v_updated is distinct from v_expected then return jsonb_build_object('error','这一天的词表已在其他页面更新，请重新载入后再发布。','status',409); end if;
+      end if;
+      insert into island_private.lessons values(v_date,trim(p_body->>'topic'),p_body->'words',clock_timestamp())
         on conflict(date) do update set topic=excluded.topic,words=excluded.words,updated_at=excluded.updated_at;
       return jsonb_build_object('ok',true);
     end if;
